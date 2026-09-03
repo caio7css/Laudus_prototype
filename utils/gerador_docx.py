@@ -121,7 +121,9 @@ def gerar_laudo(
                 if conteudo_norm.startswith(_normalizar(ph)):
                     achado = secoes.get(ph, '').strip()
                     if achado:
-                        _definir_texto_paragrafo(paragrafo, f"- {_capitalizar(achado)}")
+                        _definir_texto_paragrafo(
+                            paragrafo, f"- {ph}: {_capitalizar(achado)}"
+                        )
                     break
 
         elif medico and texto.upper().startswith('DR'):
