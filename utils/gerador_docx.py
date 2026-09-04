@@ -1,17 +1,6 @@
 """
-Módulo responsável por:
-1) extrair, a partir do texto ditado/transcrito, o trecho correspondente a cada
-   placeholder do laudo (ex.: "Transparência pulmonar", "Mediastino", ...);
-2) preencher um template .docx (como o RX_TORAX_PA_PERFIL.docx) com os dados
-   do paciente, do médico e os trechos extraídos, mantendo a formatação
-   original do template.
-
-O template não usa marcadores especiais (tipo {{campo}}) — ele já vem com um
-exemplo de laudo preenchido (ex.: "- Transparência pulmonar preservada.").
-Por isso a estratégia é: reconhecer os parágrafos-âncora (NOME:, DATA DE
-NASCIMENTO:, cada "- <placeholder> ...", DR(A)/CRM) e substituir o conteúdo
-deles, preservando a formatação (negrito, fonte, tamanho) do primeiro run de
-cada parágrafo.
+adicionar validação para poder alterar somente campo específico, ou seja
+se o médico mencionar apenas um ponto do laudo, alterar somente ela e manter o laudo com as informações em estado normal.
 """
 
 import io
@@ -22,10 +11,22 @@ from docx import Document
 
 
 def _normalizar(texto: str) -> str:
-    """Remove acentos e caixa, para comparação tolerante a maiúsculas/acentos."""
+    # Remove acentos e caixa, para comparação tolerante a maiúsculas/acentos.
     texto = unicodedata.normalize('NFKD', texto)
     texto = ''.join(c for c in texto if not unicodedata.combining(c))
     return texto.lower().strip()
+
+
+def _texto_normalizado_com_posicoes(texto: str) -> tuple[str, list[int]]:
+    """Normaliza o texto e conserva o índice original de cada caractere."""
+    normalizado = []
+    posicoes_originais = []
+    for indice, caractere in enumerate(texto):
+        parte = unicodedata.normalize('NFKD', caractere)
+        parte = ''.join(c for c in parte if not unicodedata.combining(c)).lower()
+        normalizado.append(parte)
+        posicoes_originais.extend([indice] * len(parte))
+    return ''.join(normalizado), posicoes_originais
 
 
 def extrair_secoes(texto_transcrito: str, placeholders: list[str]) -> dict:
@@ -40,23 +41,26 @@ def extrair_secoes(texto_transcrito: str, placeholders: list[str]) -> dict:
     Placeholders não mencionados no texto retornam string vazia (o parágrafo
     correspondente do template é então mantido como está).
     """
-    texto_norm = _normalizar(texto_transcrito)
+    texto_norm, posicoes_originais = _texto_normalizado_com_posicoes(texto_transcrito)
 
     posicoes = []
     for ph in placeholders:
         ph_norm = _normalizar(ph)
         idx = texto_norm.find(ph_norm)
         if idx != -1:
-            posicoes.append((idx, ph))
+            inicio = posicoes_originais[idx]
+            fim = posicoes_originais[idx + len(ph_norm) - 1] + 1
+            posicoes.append((inicio, fim, ph))
 
     posicoes.sort(key=lambda x: x[0])
 
     secoes = {ph: "" for ph in placeholders}
-    for i, (idx, ph) in enumerate(posicoes):
-        inicio_conteudo = idx + len(_normalizar(ph))
+    for i, (_inicio, fim_placeholder, ph) in enumerate(posicoes):
+        inicio_conteudo = fim_placeholder
         fim = posicoes[i + 1][0] if i + 1 < len(posicoes) else len(texto_transcrito)
         trecho = texto_transcrito[inicio_conteudo:fim].strip(" :.,-\n\t")
-        secoes[ph] = trecho
+        if trecho:
+            secoes[ph] = trecho
 
     return secoes
 
